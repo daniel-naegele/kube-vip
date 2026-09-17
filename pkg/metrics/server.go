@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"sync"
 	"time"
 
@@ -80,12 +81,24 @@ func serve(ctx context.Context, ln net.Listener) error {
 func newServeMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
+
+	// net/http/pprof's init() only registers itself on http.DefaultServeMux, which this server
+	// deliberately doesn't use -- register the handlers explicitly instead. Useful for tracking
+	// down CPU/goroutine issues (e.g. https://github.com/daniel-naegele/kube-vip/issues/5) without
+	// needing strace/SIGQUIT-triggered goroutine dumps from outside the process.
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`<html>
 			<head><title>kube-vip</title></head>
 			<body>
 			<h1>kube-vip Metrics</h1>
 			<p><a href="/metrics">Metrics</a></p>
+			<p><a href="/debug/pprof/">pprof</a></p>
 			</body>
 			</html>`))
 	})
